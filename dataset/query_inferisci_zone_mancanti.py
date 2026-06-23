@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+
+import argparse
+from pathlib import Path
+
+import duckdb
+
+
+def sql_path(path: str) -> str:
+    return "'" + Path(path).as_posix().replace("'", "''") + "'"
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Inferisce la zona mancante dal centroide piu vicino.")
+    parser.add_argument("--in", dest="input", default="data_csv_parquet/andria_distribuzione_annuale_zone.csv")
+    parser.add_argument("--out", default="data_csv_parquet/andria_distribuzione_annuale_zone_inferite.csv")
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+
+    duckdb.connect().execute(
+        f"""
+        COPY (
+            WITH my_table AS (
+                SELECT
+                    row_number() OVER () AS rid,
+                    *,
+                    NULLIF(zona, NULL) AS zona_clean
+                FROM read_csv_auto({sql_path(args.input)})
+            ),
+            centroids AS (
+                SELECT
+                    zona_clean AS zona,
+                    avg(coord_x) AS cx,
+                    avg(coord_y) AS cy
+                FROM my_table
+                WHERE zona_clean IS NOT NULL
+                GROUP BY zona_clean
+            ),
+            nearest AS (
+                SELECT
+                    t.rid,
+                    c.zona AS inferred_zona,
+                    sqrt(
+                        pow(t.coord_x - c.cx, 2) +
+                        pow(t.coord_y - c.cy, 2)
+                    ) AS distance_to_centroid
+                FROM my_table t
+                CROSS JOIN centroids c
+                WHERE t.zona_clean IS NULL
+                QUALIFY row_number() OVER (
+                    PARTITION BY t.rid
+                    ORDER BY distance_to_centroid
+                ) = 1
+            )
+            SELECT
+                t.anno,
+                t.id_civico,
+                t.odonimo,
+                t.localita,
+                t.civico,
+                t.esponente,
+                t.coord_x,
+                t.coord_y,
+                t.densita_locale,
+                t.altro_rd_t,
+                t.ingombranti_misti_t,
+                t.carta_cartone_t,
+                t.frazione_organica_t,
+                t.legno_t,
+                t.metallo_t,
+                t.plastica_t,
+                t.raee_t,
+                t.selettiva_t,
+                t.tessili_t,
+                t.vetro_t,
+                t.rifiuti_cd_t,
+                t.pulizia_stradale_recupero_t,
+                t.totale_t,
+                coalesce(t.zona_clean, n.inferred_zona) AS zona
+            FROM my_table t
+            LEFT JOIN nearest n USING (rid)
+        ) TO {sql_path(args.out)} (HEADER, DELIMITER ',')
+        """
+    )
+
+
+if __name__ == "__main__":
+    main()
