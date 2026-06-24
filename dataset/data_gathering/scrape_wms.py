@@ -212,6 +212,17 @@ def load_polygons(path):
     return known_features, known_geometries
 
 
+def read_csv_rows(path):
+    with open(path, newline="", encoding="utf-8") as f:
+        sample = f.read(8192)
+        f.seek(0)
+        try:
+            delimiter = csv.Sniffer().sniff(sample, delimiters=",;\t|").delimiter
+        except csv.Error:
+            delimiter = ","
+        return list(csv.DictReader(f, delimiter=delimiter))
+
+
 def sleep_around(seconds):
     if seconds > 0:
         time.sleep(random.uniform(seconds * 0.5, seconds * 1.5))
@@ -314,8 +325,7 @@ def main():
 
     delta = args.delta if args.delta is not None else default_delta_for_crs(args.crs)
 
-    with open(args.input_csv, newline="", encoding="utf-8") as f:
-        rows = list(csv.DictReader(f, delimiter=","))
+    rows = read_csv_rows(args.input_csv)
 
     if not rows:
         raise RuntimeError("Input CSV is empty.")
