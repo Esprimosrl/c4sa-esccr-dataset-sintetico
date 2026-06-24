@@ -88,6 +88,25 @@ def extract_tables(html: str) -> list[pd.DataFrame]:
         tables = pd.read_html(html, flavor="bs4")
     except ValueError:
         tables = []
+    except ImportError:
+        tables = extract_tables_with_bs4(html)
+
+    return tables
+
+
+def extract_tables_with_bs4(html: str) -> list[pd.DataFrame]:
+    soup = BeautifulSoup(html, "html.parser")
+    tables = []
+
+    for table in soup.find_all("table"):
+        rows = []
+        for tr in table.find_all("tr"):
+            cells = [cell.get_text(" ", strip=True) for cell in tr.find_all(["th", "td"])]
+            if cells:
+                rows.append(cells)
+
+        if rows:
+            tables.append(pd.DataFrame(rows))
 
     return tables
 
@@ -131,13 +150,42 @@ def find_fraction_value(tables: list[pd.DataFrame], aliases: list[str]) -> float
     return 0.0
 
 
-def write_totals(tables: list[pd.DataFrame], anno: int, out: Path) -> None:
+def extract_annual_totals(html: str, anno: int) -> dict[str, float]:
+    match = re.search(
+        rf"\['{anno}'\s*,\s*'Comune di Andria'\s*,(?P<body>.*?)\],",
+        html,
+        flags=re.DOTALL,
+    )
+    if not match:
+        return {}
+
+    values = [
+        float(value)
+        for value in re.findall(r"\{v:\s*([-+]?\d+(?:\.\d+)?)\s*,", match.group("body"))
+    ]
+    if len(values) < len(FRACTIONS):
+        return {}
+
+    return {
+        label: values[index]
+        for index, (label, _) in enumerate(FRACTIONS)
+    }
+
+
+def extract_table_totals(tables: list[pd.DataFrame]) -> dict[str, float]:
+    return {
+        label: find_fraction_value(tables, aliases)
+        for label, aliases in FRACTIONS
+    }
+
+
+def write_totals(values: dict[str, float], anno: int, out: Path) -> None:
     row = {
         "Anno": anno,
         "Dato relativo a:": "Comune di Andria",
     }
-    for label, aliases in FRACTIONS:
-        row[label] = f"{find_fraction_value(tables, aliases):.3f}"
+    for label, _ in FRACTIONS:
+        row[label] = f"{values.get(label, 0.0):.3f}"
 
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("w", encoding="utf-8", newline="") as f:
@@ -186,9 +234,10 @@ def main() -> None:
     html_path = output_dir / "source_page.html"
     html_path.write_text(html, encoding="utf-8")
 
+    values = extract_annual_totals(html, args.anno)
     tables = extract_tables(html)
 
-    if not tables:
+    if not values and not tables:
         print("No HTML tables were found on the page.")
         print(f"Saved the page source here: {html_path}")
         print(
@@ -197,7 +246,10 @@ def main() -> None:
         )
         return
 
-    write_totals(tables, args.anno, Path(args.out))
+    if not values:
+        values = extract_table_totals(tables)
+
+    write_totals(values, args.anno, Path(args.out))
 
     excel_path = output_dir / f"ispra_andria_{args.anno}_tables.xlsx"
 
