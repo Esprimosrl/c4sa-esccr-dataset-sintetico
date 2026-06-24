@@ -11,10 +11,21 @@ def sql_path(path: str) -> str:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Aggiunge la zona di costruzione alla distribuzione annua.")
-    parser.add_argument("--annuo", default="data_csv_parquet/andria_distribuzione_annuale_zone_inferite.csv")
-    parser.add_argument("--civici-zone", default="data_csv_parquet/civici_con_zona_costruzione_associata.csv")
-    parser.add_argument("--out", default="data_csv_parquet/andria_distribuzione_annuale_zone_inferite_e_zone_costruzione.csv")
+    parser = argparse.ArgumentParser(
+        description="Aggiunge la zona di costruzione alla distribuzione annua."
+    )
+    parser.add_argument(
+        "--annuo",
+        default="data_csv_parquet/andria_distribuzione_annuale_zone_inferite.csv",
+    )
+    parser.add_argument(
+        "--civici-zone",
+        default="data_csv_parquet/civici_andria_classificati_per_zone_di_costruzione.csv ",
+    )
+    parser.add_argument(
+        "--out",
+        default="data_csv_parquet/andria_distribuzione_annuale_zone_inferite_e_zone_costruzione.csv",
+    )
     return parser.parse_args()
 
 
