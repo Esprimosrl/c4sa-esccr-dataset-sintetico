@@ -10,7 +10,7 @@ import pandas as pd
 import requests
 
 
-ZIP_URL = "https://anncsu.open.agenziaentrate.gov.it/age-inspire/opendata/anncsu/getds.php?STRAD_PUGL"
+ZIP_URL = "https://anncsu.open.agenziaentrate.gov.it/age-inspire/opendata/anncsu/getds.php?INDIR_PUGL"
 ANDRIA_CODICE_ISTAT = "110001"
 
 DEFAULT_WORK_DIR = Path("anncsu_stradario_puglia_andria")
