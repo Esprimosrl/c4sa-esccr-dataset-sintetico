@@ -2,9 +2,34 @@
 
 ## ORDINE ESECUZIONE SCRIPT
 
-il seed è sempre 42
+Il modo consigliato per creare il dataset è il runner a grafo:
 
-Sequenza manuale:
+```bash
+./run_pipeline.sh
+```
+
+Il runner usa `joblib` per eseguire in parallelo i task indipendenti e salta i task già aggiornati. Un task è considerato in cache quando tutti i file di output esistono in `data_csv_parquet` e sono più recenti dei suoi input.
+
+PER ESEGUIRE: `JOBS=4 ANNO=2024 SEED=42 ./run_pipeline.sh`
+
+Variabili utili:
+
+```bash
+JOBS=4 ./run_pipeline.sh      # numero di task paralleli
+FORCE=1 ./run_pipeline.sh     # ignora la cache e rigenera tutto
+ANNO=2024 ./run_pipeline.sh   # anno dei dati ISPRA e giornalieri
+SEED=42 ./run_pipeline.sh     # seed deterministico
+```
+
+Per vedere i livelli del grafo senza eseguire:
+
+```bash
+python dataset/pipeline_graph.py --dry-run
+```
+
+Sequenza manuale equivalente, utile come riferimento:
+
+il seed è sempre 42
 
 1. recuperare lista civici: `python dataset/data_gathering/anncsu_downloader.py --out data_csv_parquet/civici_andria.csv`
 2. recuperare totali: `python dataset/data_gathering/ispria_downloader.py --anno 2024 --out data_csv_parquet/totali.csv`
