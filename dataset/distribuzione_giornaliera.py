@@ -2,6 +2,7 @@
 
 import argparse
 import bisect
+import hashlib
 import os
 import re
 import shutil
@@ -647,6 +648,11 @@ def anchor_day_expr(seed: int, salt: int, n_days: int) -> pl.Expr:
     return (h % n_days).cast(pl.Int32)
 
 
+def fraction_salt(label: str, seed: int) -> int:
+    digest = hashlib.sha256(f"{seed}:{label}".encode()).digest()
+    return int.from_bytes(digest[:4], "big") % 100_000
+
+
 def seasonal_weekly_expr(fraction: Fraction) -> pl.Expr:
     h = pl.col("is_holiday").cast(pl.Float64)
     after_h = pl.col("is_after_holiday").cast(pl.Float64)
@@ -734,7 +740,7 @@ def seasonal_weekly_expr(fraction: Fraction) -> pl.Expr:
 
 
 def raw_daily_weight_expr(fraction: Fraction, seed: int, n_days: int) -> pl.Expr:
-    salt = abs(hash(fraction.label)) % 100_000
+    salt = fraction_salt(fraction.label, seed)
     seasonal = seasonal_weekly_expr(fraction)
     noise = lognormal_multiplier(seed, salt + 1_000, fraction.sigma)
 
@@ -948,6 +954,7 @@ def process_fraction(
 
     group_cols = [
         "_row_nr",
+        "_annual_t",
         *meta_cols,
         "zona_raccolta",
         "frazione",
@@ -963,7 +970,15 @@ def process_fraction(
             ]
         )
         .rename({"conferimento_data": "data"})
-        .with_columns(pl.lit(args.anno).alias("anno_produzione"))
+        .with_columns(
+            [
+                pl.lit(args.anno).alias("anno_produzione"),
+                pl.col("_annual_t").alias("historical_annual_t"),
+                (
+                    pl.col("_annual_t") / pl.len().over("_row_nr")
+                ).alias("historical_collection_mean_t"),
+            ]
+        )
     )
 
     if args.round_decimals >= 0:
@@ -980,6 +995,8 @@ def process_fraction(
             "frazione",
             "conferimento_t",
             "giorni_accumulati",
+            "historical_annual_t",
+            "historical_collection_mean_t",
         ]
     )
 
