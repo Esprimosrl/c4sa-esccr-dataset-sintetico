@@ -5,6 +5,7 @@ import csv
 import json
 import os
 import random
+import sys
 import time
 from pathlib import Path
 
@@ -13,9 +14,12 @@ from shapely.geometry import Point, shape, mapping
 from shapely.errors import GEOSException
 from shapely.strtree import STRtree
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-BASE_URL = "https://comune-andria.planetek.it/ows/3/qdjango/6/"
-LAYER = "prg_andria_v4_7b29ddc5_9192_4576_b367_430a4d102c81"
+from dataset import config
+
+BASE_URL = config.WMS_BASE_URL
+LAYER = config.WMS_LAYER
 
 
 def parse_italian_number(value):
@@ -57,8 +61,8 @@ def parse_italian_number(value):
 
 def default_delta_for_crs(crs: str) -> float:
     if crs.upper() in {"CRS:84", "EPSG:4326"}:
-        return 0.0005  # degrees
-    return 5.0  # metres, e.g. EPSG:32633
+        return config.DEFAULT_WMS_DELTA_DEGREES  # degrees
+    return config.DEFAULT_WMS_DELTA_METERS  # metres, e.g. EPSG:32633
 
 
 def request_feature_info(x, y, crs, delta, session, max_retries=3):
@@ -295,7 +299,7 @@ def main():
     )
     parser.add_argument(
         "--crs",
-        default="CRS:84",
+        default=config.DEFAULT_WMS_CRS,
         help="CRS of the CSV coordinates and WMS query. Use CRS:84 for lon/lat, EPSG:32633 for UTM 33N. Default: CRS:84",
     )
     parser.add_argument(
@@ -307,12 +311,12 @@ def main():
     parser.add_argument(
         "--sleep",
         type=float,
-        default=0.05,
+        default=config.DEFAULT_WMS_QUERY_SLEEP_SECONDS,
         help="Average sleep seconds between HTTP requests; actual wait is random around it. Default: 0.05",
     )
     parser.add_argument(
         "--polygons-out",
-        default="retrieved_prg_polygons.geojson",
+        default=config.WMS_POLYGONS_GEOJSON,
         help="GeoJSON output containing unique retrieved polygons.",
     )
     parser.add_argument(

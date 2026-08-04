@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import sys
 from pathlib import Path
 from zipfile import ZipFile
 import csv
@@ -9,11 +10,13 @@ import shutil
 import pandas as pd
 import requests
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-ZIP_URL = "https://anncsu.open.agenziaentrate.gov.it/age-inspire/opendata/anncsu/getds.php?INDIR_PUGL"
-ANDRIA_CODICE_ISTAT = "110001"
+from dataset import config
 
-DEFAULT_WORK_DIR = Path("anncsu_stradario_puglia_andria")
+ZIP_URL = config.ANNCSU_ZIP_URL
+ANDRIA_CODICE_ISTAT = config.ANDRIA_ISTAT_CODE
+DEFAULT_WORK_DIR = Path(config.ANNCSU_WORK_DIR)
 
 
 def download_zip(url: str, destination: Path) -> None:
@@ -134,7 +137,7 @@ def filter_andria_rows(source_csv: Path, output_csv: Path) -> int:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Scarica i civici ANNCSU di Andria.")
-    parser.add_argument("--out", default="data_csv_parquet/civici_andria.csv")
+    parser.add_argument("--out", default=config.CIVICI_CSV)
     parser.add_argument("--work-dir", default=str(DEFAULT_WORK_DIR))
     return parser.parse_args()
 

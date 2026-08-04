@@ -2,12 +2,17 @@
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import requests
 
-BASE_URL = "https://comune-andria.planetek.it/ows/3/qdjango/6/"
-LAYER = "prg_andria_v4_7b29ddc5_9192_4576_b367_430a4d102c81"
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from dataset import config
+
+BASE_URL = config.WMS_BASE_URL
+LAYER = config.WMS_LAYER
 
 params = {
     "SERVICE": "WMS",
@@ -28,7 +33,7 @@ params = {
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Scarica tutte le zone PRG Andria dal WMS.")
-    parser.add_argument("--out", default="data_csv_parquet/andria_full_zone.geojson")
+    parser.add_argument("--out", default=config.FULL_WMS_ZONE_GEOJSON)
     return parser.parse_args()
 
 

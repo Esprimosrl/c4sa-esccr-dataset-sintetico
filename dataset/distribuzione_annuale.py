@@ -6,6 +6,11 @@ from dataclasses import dataclass
 
 import polars as pl
 
+try:
+    from dataset import config
+except ModuleNotFoundError:
+    import config
+
 
 @dataclass(frozen=True)
 class Fraction:
@@ -80,13 +85,13 @@ def parse_args() -> argparse.Namespace:
         help="Anno da usare. Se omesso usa il massimo anno presente.",
     )
     parser.add_argument(
-        "--seed", type=int, default=42, help="Seed per pseudo-random deterministico"
+        "--seed", type=int, default=config.DEFAULT_SEED, help="Seed per pseudo-random deterministico"
     )
     parser.add_argument(
-        "--grid-m", type=float, default=120.0, help="Lato cella griglia in metri"
+        "--grid-m", type=float, default=config.DEFAULT_ANNUAL_GRID_METERS, help="Lato cella griglia in metri"
     )
     parser.add_argument(
-        "--totali-separator", default=",", help="Separatore CSV del file dei totali"
+        "--totali-separator", default=config.DEFAULT_TOTALS_SEPARATOR, help="Separatore CSV del file dei totali"
     )
     parser.add_argument(
         "--round-decimals",

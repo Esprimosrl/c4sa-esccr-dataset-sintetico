@@ -5,6 +5,11 @@ from pathlib import Path
 
 import duckdb
 
+try:
+    from dataset import config
+except ModuleNotFoundError:
+    import config
+
 
 def sql_path(path: str) -> str:
     return "'" + Path(path).as_posix().replace("'", "''") + "'"
@@ -12,8 +17,8 @@ def sql_path(path: str) -> str:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Inferisce la zona mancante dal centroide piu vicino.")
-    parser.add_argument("--in", dest="input", default="data_csv_parquet/andria_distribuzione_annuale_zone.csv")
-    parser.add_argument("--out", default="data_csv_parquet/andria_distribuzione_annuale_zone_inferite.csv")
+    parser.add_argument("--in", dest="input", default=config.ANNUAL_ZONE_CSV)
+    parser.add_argument("--out", default=config.ANNUAL_ZONE_INFERRED_CSV)
     return parser.parse_args()
 
 

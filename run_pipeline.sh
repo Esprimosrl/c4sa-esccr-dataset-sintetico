@@ -4,10 +4,12 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 PYTHON="${PYTHON:-./bin/python}"
-SEED="${SEED:-42}"
-ANNO="${ANNO:-2024}"
-JOBS="${JOBS:-2}"
 FORCE="${FORCE:-}"
+
+ARGS=(--python "$PYTHON")
+[[ -n "${SEED:-}" ]] && ARGS+=(--seed "$SEED")
+[[ -n "${ANNO:-}" ]] && ARGS+=(--anno "$ANNO")
+[[ -n "${JOBS:-}" ]] && ARGS+=(--jobs "$JOBS")
 
 if [[ -n "$FORCE" ]]; then
   FORCE_ARGS=(--force)
@@ -16,8 +18,5 @@ else
 fi
 
 "$PYTHON" dataset/pipeline_graph.py \
-  --python "$PYTHON" \
-  --anno "$ANNO" \
-  --seed "$SEED" \
-  --jobs "$JOBS" \
+  "${ARGS[@]}" \
   "${FORCE_ARGS[@]}"

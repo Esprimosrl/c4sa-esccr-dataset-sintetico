@@ -10,6 +10,10 @@ from pathlib import Path
 
 from joblib import Parallel, delayed
 
+try:
+    from dataset import config
+except ModuleNotFoundError:
+    import config
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -30,183 +34,181 @@ class Config:
     seed: int
 
 
-def tasks(config: Config) -> list[Task]:
-    py = config.python
-    anno = str(config.anno)
-    seed = str(config.seed)
+def tasks(pipeline_config: Config) -> list[Task]:
+    py = pipeline_config.python
+    anno = str(pipeline_config.anno)
+    seed = str(pipeline_config.seed)
 
     return [
         Task(
             "civici",
             (
                 py,
-                "dataset/data_gathering/anncsu_downloader.py",
+                config.ANNCSU_DOWNLOADER,
                 "--out",
-                "data_csv_parquet/civici_andria.csv",
+                config.CIVICI_CSV,
             ),
-            outputs=("data_csv_parquet/civici_andria.csv",),
+            outputs=(config.CIVICI_CSV,),
         ),
         Task(
             "totali",
             (
                 py,
-                "dataset/data_gathering/ispria_downloader.py",
+                config.ISPRA_DOWNLOADER,
                 "--anno",
                 anno,
                 "--out",
-                "data_csv_parquet/totali.csv",
+                config.TOTALI_CSV,
             ),
-            outputs=("data_csv_parquet/totali.csv",),
+            outputs=(config.TOTALI_CSV,),
         ),
         Task(
             "distribuzione_annuale",
             (
                 py,
-                "dataset/distribuzione_annuale.py",
+                config.ANNUAL_DISTRIBUTION,
                 "--civici",
-                "data_csv_parquet/civici_andria.csv",
+                config.CIVICI_CSV,
                 "--totali",
-                "data_csv_parquet/totali.csv",
+                config.TOTALI_CSV,
                 "--out",
-                "data_csv_parquet/andria_distribuzione_annuale.csv",
+                config.ANNUAL_CSV,
                 "--seed",
                 seed,
                 "--totali-separator",
-                ",",
+                config.DEFAULT_TOTALS_SEPARATOR,
             ),
             deps=("civici", "totali"),
             inputs=(
-                "dataset/distribuzione_annuale.py",
-                "data_csv_parquet/civici_andria.csv",
-                "data_csv_parquet/totali.csv",
+                config.ANNUAL_DISTRIBUTION,
+                config.CIVICI_CSV,
+                config.TOTALI_CSV,
             ),
-            outputs=("data_csv_parquet/andria_distribuzione_annuale.csv",),
+            outputs=(config.ANNUAL_CSV,),
         ),
         Task(
             "merge_zone",
-            (py, "dataset/query_merge_zone.py"),
+            (py, config.MERGE_ZONE),
             deps=("distribuzione_annuale",),
             inputs=(
-                "dataset/query_merge_zone.py",
-                "data_csv_parquet/andria_distribuzione_annuale.csv",
-                "data_csv_parquet/andria_stradario_zone.csv",
+                config.MERGE_ZONE,
+                config.ANNUAL_CSV,
+                config.STRADARIO_ZONE_CSV,
             ),
-            outputs=("data_csv_parquet/andria_distribuzione_annuale_zone.csv",),
+            outputs=(config.ANNUAL_ZONE_CSV,),
         ),
         Task(
             "inferisci_zone",
-            (py, "dataset/query_inferisci_zone_mancanti.py"),
+            (py, config.INFER_ZONE),
             deps=("merge_zone",),
             inputs=(
-                "dataset/query_inferisci_zone_mancanti.py",
-                "data_csv_parquet/andria_distribuzione_annuale_zone.csv",
+                config.INFER_ZONE,
+                config.ANNUAL_ZONE_CSV,
             ),
-            outputs=(
-                "data_csv_parquet/andria_distribuzione_annuale_zone_inferite.csv",
-            ),
+            outputs=(config.ANNUAL_ZONE_INFERRED_CSV,),
         ),
         Task(
             "full_wms_zone",
             (
                 py,
-                "dataset/data_gathering/full_wms_zone_dump.py",
+                config.FULL_WMS_ZONE_DUMP,
                 "--out",
-                "data_csv_parquet/andria_full_zone.geojson",
+                config.FULL_WMS_ZONE_GEOJSON,
             ),
-            outputs=("data_csv_parquet/andria_full_zone.geojson",),
+            outputs=(config.FULL_WMS_ZONE_GEOJSON,),
         ),
         Task(
             "classifica_civici_prg",
             (
                 py,
-                "dataset/data_gathering/scrape_wms.py",
+                config.WMS_SCRAPER,
                 "--x-field",
-                "COORD_X_COMUNE",
+                config.WMS_X_FIELD,
                 "--y-field",
-                "COORD_Y_COMUNE",
+                config.WMS_Y_FIELD,
                 "--sleep",
-                "5.3",
+                str(config.DEFAULT_WMS_SLEEP_SECONDS),
                 "--polygons-out",
-                "data_csv_parquet/poligoni_wms.geojson",
-                "data_csv_parquet/civici_andria.csv",
+                config.WMS_POLYGONS_GEOJSON,
+                config.CIVICI_CSV,
                 "--polygons-source",
-                "data_csv_parquet/andria_full_zone.geojson",
-                "data_csv_parquet/civici_andria_classificati_per_zone_di_costruzione.csv",
+                config.FULL_WMS_ZONE_GEOJSON,
+                config.CIVICI_PRG_CSV,
             ),
             deps=("civici", "full_wms_zone"),
             inputs=(
-                "data_csv_parquet/civici_andria.csv",
-                "data_csv_parquet/andria_full_zone.geojson",
+                config.CIVICI_CSV,
+                config.FULL_WMS_ZONE_GEOJSON,
             ),
             outputs=(
-                "data_csv_parquet/civici_andria_classificati_per_zone_di_costruzione.csv",
+                config.CIVICI_PRG_CSV,
             ),
         ),
         Task(
             "togli_civici_dalla_strada",
-            (py, "dataset/query_togli_civici_dalla_strada.py"),
+            (py, config.REASSIGN_CIVICI),
             deps=("classifica_civici_prg", "full_wms_zone"),
             inputs=(
-                "data_csv_parquet/civici_andria_classificati_per_zone_di_costruzione.csv",
-                "data_csv_parquet/andria_full_zone.geojson",
+                config.CIVICI_PRG_CSV,
+                config.FULL_WMS_ZONE_GEOJSON,
             ),
             outputs=(
-                "data_csv_parquet/civici_andria_riassegnati_no_viab_chunked_moved.csv",
+                config.CIVICI_PRG_REASSIGNED_CSV,
             ),
         ),
         Task(
             "zone_costruzione_annuale",
             (
                 py,
-                "dataset/query_crea_distribuzione_annuale_con_zone_di_costruzione.py",
+                config.ADD_BUILDING_ZONE,
                 "--civici-zone",
-                "data_csv_parquet/civici_andria_riassegnati_no_viab_chunked_moved.csv",
+                config.CIVICI_PRG_REASSIGNED_CSV,
                 "--out",
-                "data_csv_parquet/andria_distribuzione_annuale_completa.parquet",
+                config.ANNUAL_COMPLETE_PARQUET,
             ),
             deps=("inferisci_zone", "togli_civici_dalla_strada"),
             inputs=(
-                "dataset/query_crea_distribuzione_annuale_con_zone_di_costruzione.py",
-                "data_csv_parquet/andria_distribuzione_annuale_zone_inferite.csv",
-                "data_csv_parquet/civici_andria_riassegnati_no_viab_chunked_moved.csv",
+                config.ADD_BUILDING_ZONE,
+                config.ANNUAL_ZONE_INFERRED_CSV,
+                config.CIVICI_PRG_REASSIGNED_CSV,
             ),
             outputs=(
-                "data_csv_parquet/andria_distribuzione_annuale_completa.parquet",
+                config.ANNUAL_COMPLETE_PARQUET,
             ),
         ),
         Task(
             "distribuzione_giornaliera",
             (
                 py,
-                "dataset/distribuzione_giornaliera.py",
+                config.DAILY_DISTRIBUTION,
                 "--annuo",
-                "data_csv_parquet/andria_distribuzione_annuale_completa.parquet",
+                config.ANNUAL_COMPLETE_PARQUET,
                 "--anno",
                 anno,
                 "--calendario",
-                "data_csv_parquet/calendario_raccolta.csv",
+                config.CALENDARIO_RACCOLTA_CSV,
                 "--id-col",
-                "id_civico",
+                config.DAILY_ID_COLUMN,
                 "--zona-col",
-                "zona_raccolta",
+                config.DAILY_ZONE_COLUMN,
                 "--seed",
                 seed,
                 "--out",
-                "data_csv_parquet/conferimenti_giornalieri_completi.parquet",
+                config.CONFERIMENTI_GIORNALIERI_PARQUET,
                 "--out-produzione",
-                "data_csv_parquet/produzione_giornaliera_completa.parquet",
+                config.PRODUZIONE_GIORNALIERA_PARQUET,
                 "--missing-calendar-mode",
-                "daily",
+                config.DEFAULT_MISSING_CALENDAR_MODE,
             ),
             deps=("zone_costruzione_annuale",),
             inputs=(
-                "dataset/distribuzione_giornaliera.py",
-                "data_csv_parquet/andria_distribuzione_annuale_completa.parquet",
-                "data_csv_parquet/calendario_raccolta.csv",
+                config.DAILY_DISTRIBUTION,
+                config.ANNUAL_COMPLETE_PARQUET,
+                config.CALENDARIO_RACCOLTA_CSV,
             ),
             outputs=(
-                "data_csv_parquet/conferimenti_giornalieri_completi.parquet",
-                "data_csv_parquet/produzione_giornaliera_completa.parquet",
+                config.CONFERIMENTI_GIORNALIERI_PARQUET,
+                config.PRODUZIONE_GIORNALIERA_PARQUET,
             ),
         ),
     ]
@@ -278,7 +280,7 @@ def print_plan(plan: list[list[Task]]) -> None:
 def self_test() -> None:
     names_by_level = [
         [task.name for task in level]
-        for level in levels(tasks(Config("python", 2024, 42)))
+        for level in levels(tasks(Config("python", config.DEFAULT_ANNO, config.DEFAULT_SEED)))
     ]
     assert names_by_level[0] == ["civici", "totali", "full_wms_zone"]
     assert names_by_level[-1] == ["distribuzione_giornaliera"]
@@ -290,9 +292,9 @@ def parse_args() -> argparse.Namespace:
         description="Esegue la creazione dataset come grafo di task joblib."
     )
     parser.add_argument("--python", default=os.environ.get("PYTHON", sys.executable))
-    parser.add_argument("--anno", type=int, default=int(os.environ.get("ANNO", "2024")))
-    parser.add_argument("--seed", type=int, default=int(os.environ.get("SEED", "42")))
-    parser.add_argument("--jobs", type=int, default=int(os.environ.get("JOBS", "2")))
+    parser.add_argument("--anno", type=int, default=int(os.environ.get("ANNO", config.DEFAULT_ANNO)))
+    parser.add_argument("--seed", type=int, default=int(os.environ.get("SEED", config.DEFAULT_SEED)))
+    parser.add_argument("--jobs", type=int, default=int(os.environ.get("JOBS", config.DEFAULT_JOBS)))
     parser.add_argument(
         "--dry-run",
         action="store_true",

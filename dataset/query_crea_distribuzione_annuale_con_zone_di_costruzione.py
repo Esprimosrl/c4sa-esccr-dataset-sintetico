@@ -5,6 +5,11 @@ from pathlib import Path
 
 import duckdb
 
+try:
+    from dataset import config
+except ModuleNotFoundError:
+    import config
+
 
 def sql_path(path: str) -> str:
     return "'" + Path(path).as_posix().replace("'", "''") + "'"
@@ -22,15 +27,15 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--annuo",
-        default="data_csv_parquet/andria_distribuzione_annuale_zone_inferite.csv",
+        default=config.ANNUAL_ZONE_INFERRED_CSV,
     )
     parser.add_argument(
         "--civici-zone",
-        default="data_csv_parquet/civici_andria_riassegnati_no_viab_chunked_moved.csv",
+        default=config.CIVICI_PRG_REASSIGNED_CSV,
     )
     parser.add_argument(
         "--out",
-        default="data_csv_parquet/andria_distribuzione_annuale_completa.parquet",
+        default=config.ANNUAL_COMPLETE_PARQUET,
     )
     return parser.parse_args()
 

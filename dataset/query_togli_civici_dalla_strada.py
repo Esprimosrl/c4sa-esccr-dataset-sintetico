@@ -5,6 +5,11 @@ from pathlib import Path
 
 import duckdb
 
+try:
+    from dataset import config
+except ModuleNotFoundError:
+    import config
+
 
 def sql_path(path: str) -> str:
     return "'" + Path(path).as_posix().replace("'", "''") + "'"
@@ -12,11 +17,11 @@ def sql_path(path: str) -> str:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='Riassegna i civici classificati come "viab" alla zona vicina.')
-    parser.add_argument("--civici", default="data_csv_parquet/civici_andria_classificati_per_zone_di_costruzione.csv")
-    parser.add_argument("--zone", default="data_csv_parquet/andria_full_zone.geojson")
-    parser.add_argument("--out", default="data_csv_parquet/civici_andria_riassegnati_no_viab_chunked_moved.csv")
-    parser.add_argument("--cell-deg", type=float, default=0.000001)
-    parser.add_argument("--zones-per-chunk", type=int, default=3)
+    parser.add_argument("--civici", default=config.CIVICI_PRG_CSV)
+    parser.add_argument("--zone", default=config.FULL_WMS_ZONE_GEOJSON)
+    parser.add_argument("--out", default=config.CIVICI_PRG_REASSIGNED_CSV)
+    parser.add_argument("--cell-deg", type=float, default=config.DEFAULT_REASSIGN_CELL_DEGREES)
+    parser.add_argument("--zones-per-chunk", type=int, default=config.DEFAULT_REASSIGN_ZONES_PER_CHUNK)
     return parser.parse_args()
 
 

@@ -3,11 +3,16 @@
 import argparse
 import csv
 import re
+import sys
 from pathlib import Path
 
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from dataset import config
 
 
 URL_TEMPLATE = (
@@ -24,7 +29,7 @@ URL_TEMPLATE = (
     "&&p=1"
 )
 
-DEFAULT_OUTPUT_DIR = Path("ispra_andria_2024")
+DEFAULT_OUTPUT_DIR = Path(config.ISPRA_WORK_DIR)
 
 FRACTIONS = [
     ("Altro RD", ["altro rd"]),
@@ -217,8 +222,8 @@ def table_title_nearby(html: str, table_index: int) -> str:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Scarica i totali rifiuti ISPRA di Andria.")
-    parser.add_argument("--anno", type=int, default=2024)
-    parser.add_argument("--out", default="data_csv_parquet/totali.csv")
+    parser.add_argument("--anno", type=int, default=config.DEFAULT_ANNO)
+    parser.add_argument("--out", default=config.TOTALI_CSV)
     parser.add_argument("--work-dir", default=str(DEFAULT_OUTPUT_DIR))
     return parser.parse_args()
 

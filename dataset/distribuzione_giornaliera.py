@@ -12,6 +12,11 @@ from pathlib import Path
 
 import polars as pl
 
+try:
+    from dataset import config
+except ModuleNotFoundError:
+    import config
+
 
 @dataclass(frozen=True)
 class Fraction:
@@ -155,30 +160,30 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
-        "--annuo-separator", default=",", help="Separatore del CSV annuo"
+        "--annuo-separator", default=config.DEFAULT_TOTALS_SEPARATOR, help="Separatore del CSV annuo"
     )
     parser.add_argument(
-        "--calendar-separator", default=",", help="Separatore del CSV calendario"
+        "--calendar-separator", default=config.DEFAULT_TOTALS_SEPARATOR, help="Separatore del CSV calendario"
     )
 
     parser.add_argument(
-        "--id-col", default="id_civico", help="Colonna ID civico nel file annuo"
+        "--id-col", default=config.DAILY_ID_COLUMN, help="Colonna ID civico nel file annuo"
     )
     parser.add_argument(
         "--zona-col",
-        default="zona_raccolta",
+        default=config.DAILY_ZONE_COLUMN,
         help="Colonna zona raccolta nel file annuo. Se assente, viene usata --zona-default.",
     )
     parser.add_argument(
         "--zona-default",
-        default="1",
+        default=config.DEFAULT_DAILY_ZONE,
         help="Zona raccolta usata se il file annuo non ha zona",
     )
 
     parser.add_argument(
         "--spillover-days",
         type=int,
-        default=14,
+        default=config.DEFAULT_DAILY_SPILLOVER_DAYS,
         help=(
             "Giorni dell'anno successivo considerati per conferire rifiuti prodotti a fine anno. "
             "Serve a evitare residui non conferiti al 31 dicembre."
@@ -206,7 +211,7 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
-        "--seed", type=int, default=42, help="Seed pseudo-casuale deterministico"
+        "--seed", type=int, default=config.DEFAULT_SEED, help="Seed pseudo-casuale deterministico"
     )
     parser.add_argument(
         "--round-decimals",

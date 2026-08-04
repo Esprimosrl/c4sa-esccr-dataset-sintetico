@@ -5,6 +5,11 @@ from pathlib import Path
 
 import duckdb
 
+try:
+    from dataset import config
+except ModuleNotFoundError:
+    import config
+
 
 def sql_path(path: str) -> str:
     return "'" + Path(path).as_posix().replace("'", "''") + "'"
@@ -12,9 +17,9 @@ def sql_path(path: str) -> str:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Unisce la distribuzione annua alle zone di raccolta.")
-    parser.add_argument("--annuo", default="data_csv_parquet/andria_distribuzione_annuale.csv")
-    parser.add_argument("--stradario", default="data_csv_parquet/andria_stradario_zone.csv")
-    parser.add_argument("--out", default="data_csv_parquet/andria_distribuzione_annuale_zone.csv")
+    parser.add_argument("--annuo", default=config.ANNUAL_CSV)
+    parser.add_argument("--stradario", default=config.STRADARIO_ZONE_CSV)
+    parser.add_argument("--out", default=config.ANNUAL_ZONE_CSV)
     return parser.parse_args()
 
 
