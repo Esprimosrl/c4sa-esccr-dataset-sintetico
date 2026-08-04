@@ -29,7 +29,7 @@ python dataset/pipeline_graph.py --dry-run
 
 Sequenza manuale equivalente, utile come riferimento:
 
-il seed è sempre 42
+Nell’esecuzione di riferimento il seed è 42.
 
 1. recuperare lista civici: `python dataset/data_gathering/anncsu_downloader.py --out data_csv_parquet/civici_andria.csv`
 2. recuperare totali: `python dataset/data_gathering/ispria_downloader.py --anno 2024 --out data_csv_parquet/totali.csv`
@@ -40,14 +40,53 @@ il seed è sempre 42
 7. recuperare i poligoni delle zone di costruzione: `python dataset/data_gathering/full_wms_zone_dump.py --out data_csv_parquet/andria_full_zone.geojson`
 8. creare l'elenco delle zone di costruzione utilizzando la lista dei civici del punto 1 e l'insieme dei poligoni che rappresentano le zone di costruzione: `python dataset/data_gathering/scrape_wms.py --x-field "COORD_X_COMUNE" --y-field "COORD_Y_COMUNE" --sleep 5.3 --polygons-out data_csv_parquet/poligoni_wms.geojson data_csv_parquet/civici_andria.csv --polygons-source data_csv_parquet/andria_full_zone.geojson data_csv_parquet/civici_andria_classificati_per_zone_di_costruzione.csv`
 9. Assegnare la zona più vicina a tutti i civici che "finiscono in strada" usando `python dataset/query_togli_civici_dalla_strada.py`
-10. fare il merge usando `python dataset/query_crea_distribuzione_annuale_con_zone_di_costruzione.py --civici-zone data_csv_parquet/civici_andria_riassegnati_no_viab_chunked_moved.csv`
-11. calcolo della produzione e conferimento giornaliero dal CSV annuo classificato:
+10. creare il Parquet annuale completo usando `python dataset/query_crea_distribuzione_annuale_con_zone_di_costruzione.py --civici-zone data_csv_parquet/civici_andria_riassegnati_no_viab_chunked_moved.csv --out data_csv_parquet/andria_distribuzione_annuale_completa.parquet`
+11. calcolo della produzione e conferimento giornaliero dal Parquet annuo classificato:
 
     ```bash
-    python dataset/distribuzione_giornaliera.py --annuo data_csv_parquet/andria_distribuzione_annuale_zone_inferite_e_zone_costruzione.csv --anno 2024 --calendario data_csv_parquet/calendario_raccolta.csv --id-col "id_civico" --zona-col "zona_raccolta" --seed 42 --out data_csv_parquet/conferimenti_giornalieri_classificati.csv --out-produzione data_csv_parquet/produzione_giornaliera_classificata.csv --missing-calendar-mode daily
+    python dataset/distribuzione_giornaliera.py --annuo data_csv_parquet/andria_distribuzione_annuale_completa.parquet --anno 2024 --calendario data_csv_parquet/calendario_raccolta.csv --id-col "id_civico" --zona-col "zona_raccolta" --seed 42 --out data_csv_parquet/conferimenti_giornalieri_completi.parquet --out-produzione data_csv_parquet/produzione_giornaliera_completa.parquet --missing-calendar-mode daily
     ```
 
     (il missing-calendar-mode daily serve perché la pulizia stradale avviene ogni giorno)
+
+## OUTPUT COMPLETI
+
+I tre output autorevoli sono Parquet compressi:
+
+- `andria_distribuzione_annuale_completa.parquet`, con quantità annuali e tutti i metadati ANNCSU, zona di raccolta e classificazione WMS/PRG;
+- `produzione_giornaliera_completa.parquet`, con produzione teorica e gli stessi metadati civici e territoriali, ma senza ripetere le quantità annuali;
+- `conferimenti_giornalieri_completi.parquet`, con conferimenti e metadati civici e territoriali, ma senza ripetere le quantità annuali.
+
+`zona_raccolta` è la zona operativa risolta. `zona_costruzione` è il codice PRG risolto; i campi `prg_*_originale`, `prg_*`, `zona_costruzione_riassegnata` e `distanza_riassegnazione_prg` conservano la provenienza e l'eventuale riassegnazione WMS. Le quantità `*_t` sono espresse in tonnellate.
+
+Le frazioni episodiche usano zero reale nei giorni senza evento, pesi annuali limitati e probabilità differenziate per frazione. La pipeline verifica inoltre limiti conservativi per civico e conferimento: un superamento interrompe la generazione invece di produrre quantità domestiche irrealistiche.
+
+## SCENARI PER IL MACHINE LEARNING
+
+Dopo avere creato il Parquet annuale completo, gli scenari giornalieri con seed 42-61 si generano con:
+
+```bash
+./bin/python dataset/genera_scenari_ml.py
+```
+
+La distribuzione annuale rimane quella prodotta con seed 42. Per ogni seed giornaliero viene creato:
+
+```text
+data_csv_parquet/scenari_ml/scenario_seed=<seed>/
+├── manifest.json
+└── ritiri_zona.parquet
+```
+
+`ritiri_zona.parquet` contiene una riga per data, zona e frazione, include i ritiri programmati a quantità zero e conserva `scenario_seed` come metadato. Il file civico usato durante la generazione è temporaneo e viene eliminato soltanto dopo la riconciliazione con i totali annuali.
+
+Per controllare i comandi senza eseguirli o per produrre un intervallo ridotto:
+
+```bash
+./bin/python dataset/genera_scenari_ml.py --dry-run
+./bin/python dataset/genera_scenari_ml.py --seed-inizio 42 --seed-fine 43
+```
+
+Gli scenari completi vengono considerati in cache. `--force` ne richiede esplicitamente la rigenerazione.
 
 ## GRAFO DIPENDENZE
 
@@ -77,9 +116,9 @@ flowchart TD
     ANN_INF[/data_csv_parquet/andria_distribuzione_annuale_zone_inferite.csv/]
     CIV_ZONE[/data_csv_parquet/civici_andria_classificati_per_zone_di_costruzione.csv/]
     CIV_NO_VIAB[/data_csv_parquet/civici_andria_riassegnati_no_viab_chunked_moved.csv/]
-    ANN_COSTR[/data_csv_parquet/andria_distribuzione_annuale_zone_inferite_e_zone_costruzione.csv/]
-    CONF_CLASS[/data_csv_parquet/conferimenti_giornalieri_classificati.csv/]
-    PROD[/data_csv_parquet/produzione_giornaliera_classificata.csv/]
+    ANN_COSTR[/data_csv_parquet/andria_distribuzione_annuale_completa.parquet/]
+    CONF_CLASS[/data_csv_parquet/conferimenti_giornalieri_completi.parquet/]
+    PROD[/data_csv_parquet/produzione_giornaliera_completa.parquet/]
 
     ANNCSU --> S1
     S1 --> CIVICI
