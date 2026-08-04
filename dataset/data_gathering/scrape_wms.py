@@ -369,7 +369,7 @@ def main():
     output_fields = input_fields + [f for f in extra_fields if f not in input_fields]
     output_path = Path(args.output_csv)
     polygons_path = Path(args.polygons_out)
-    # ponytail: resume by completed output row count; use stable row IDs if input order can change.
+    # resume by completed output row count; use stable row IDs if input order can change.
     resume_count = existing_output_rows(output_path, output_fields)
 
     if resume_count > len(points):

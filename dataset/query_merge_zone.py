@@ -27,7 +27,7 @@ def main() -> None:
         COPY (
             WITH rif AS (
                 SELECT *
-                FROM read_csv_auto({sql_path(args.annuo)})
+                FROM read_csv_auto({sql_path(args.annuo)}, sample_size = -1)
             ),
             strad AS (
                 SELECT *

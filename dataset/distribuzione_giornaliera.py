@@ -24,23 +24,92 @@ class Fraction:
 
 FRACTIONS = [
     Fraction("altro_rd", "altro_rd_t", "continuous", 0.35),
-    Fraction("ingombranti_misti", "ingombranti_misti_t", "rare", 1.10, 0.010),
+    Fraction("ingombranti_misti", "ingombranti_misti_t", "rare", 0.55, 0.003),
     Fraction("carta_cartone", "carta_cartone_t", "continuous", 0.45),
     Fraction("frazione_organica", "frazione_organica_t", "continuous", 0.28),
-    Fraction("legno", "legno_t", "semi_rare", 0.90, 0.030),
+    Fraction("legno", "legno_t", "semi_rare", 0.50, 0.004),
     Fraction("metallo", "metallo_t", "continuous_tail", 0.65),
     Fraction("plastica", "plastica_t", "continuous", 0.38),
-    Fraction("raee", "raee_t", "rare", 1.20, 0.006),
-    Fraction("selettiva", "selettiva_t", "rare", 1.00, 0.006),
-    Fraction("tessili", "tessili_t", "rare", 1.00, 0.010),
+    Fraction("raee", "raee_t", "rare", 0.50, 0.002),
+    Fraction("selettiva", "selettiva_t", "rare", 0.45, 0.002),
+    Fraction("tessili", "tessili_t", "rare", 0.50, 0.004),
     Fraction("vetro", "vetro_t", "continuous_tail", 0.55),
-    Fraction("rifiuti_cd", "rifiuti_cd_t", "rare", 1.35, 0.004),
+    Fraction("rifiuti_cd", "rifiuti_cd_t", "rare", 0.60, 0.0015),
     Fraction(
         "pulizia_stradale_recupero", "pulizia_stradale_recupero_t", "continuous", 0.35
     ),
 ]
 
 FRACTION_BY_LABEL = {f.label: f for f in FRACTIONS}
+ANNUAL_VALUE_COLUMNS = {
+    "anno",
+    "totale_t",
+    "totale_kg",
+    *(f.annual_col for f in FRACTIONS),
+    *(f.annual_col.removesuffix("_t") + "_kg" for f in FRACTIONS),
+}
+REQUIRED_STATIC_COLUMNS = {
+    "id_civico",
+    "odonimo",
+    "localita",
+    "civico",
+    "esponente",
+    "coord_x",
+    "coord_y",
+    "densita_locale",
+    "anncsu_codice_comune",
+    "anncsu_codice_istat",
+    "anncsu_progressivo_nazionale",
+    "anncsu_codice_comunale",
+    "anncsu_dizione_lingua1",
+    "anncsu_dizione_lingua2",
+    "anncsu_codice_comunale_accesso",
+    "anncsu_specificita",
+    "anncsu_metrico",
+    "anncsu_progressivo_snc",
+    "anncsu_quota",
+    "anncsu_metodo",
+    "zona_raccolta",
+    "zona_costruzione",
+    "coord_x_prg",
+    "coord_y_prg",
+    "prg_codice_zona_originale",
+    "prg_zona_originale",
+    "prg_norme_originali",
+    "prg_normative_originali",
+    "prg_fonte_originale",
+    "prg_gid_originale",
+    "prg_id_originale",
+    "prg_feature_id_originale",
+    "prg_error",
+    "prg_zona",
+    "prg_norme",
+    "prg_normative",
+    "prg_fonte",
+    "prg_gid",
+    "prg_id",
+    "prg_feature_id",
+    "zona_costruzione_riassegnata",
+    "distanza_riassegnazione_prg",
+}
+
+# conservative per-civic pickup bounds for the synthetic residential model;
+# replace them with calibrated service limits when operator observations are available.
+MAX_COLLECTION_T = {
+    "altro_rd": 0.005,
+    "ingombranti_misti": 0.300,
+    "carta_cartone": 0.020,
+    "frazione_organica": 0.025,
+    "legno": 0.150,
+    "metallo": 0.005,
+    "plastica": 0.010,
+    "raee": 0.100,
+    "selettiva": 0.010,
+    "tessili": 0.120,
+    "vetro": 0.020,
+    "rifiuti_cd": 0.250,
+    "pulizia_stradale_recupero": 0.050,
+}
 
 
 def resolve_annual_col(columns: list[str], fraction: Fraction) -> str | None:
@@ -65,9 +134,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--annuo",
         required=True,
-        help="CSV annuo per civico prodotto dallo script precedente",
+        help="Dataset annuo CSV o Parquet prodotto dallo script precedente",
     )
-    parser.add_argument("--out", required=True, help="CSV giornaliero dei conferimenti")
+    parser.add_argument(
+        "--out",
+        required=True,
+        help="Dataset giornaliero CSV o Parquet dei conferimenti",
+    )
     parser.add_argument(
         "--anno", type=int, required=True, help="Anno di produzione da disaggregare"
     )
@@ -136,7 +209,10 @@ def parse_args() -> argparse.Namespace:
         "--seed", type=int, default=42, help="Seed pseudo-casuale deterministico"
     )
     parser.add_argument(
-        "--round-decimals", type=int, default=3, help="Decimali per i t in output"
+        "--round-decimals",
+        type=int,
+        default=-1,
+        help="Decimali per i t in output; -1 mantiene i valori non arrotondati",
     )
 
     parser.add_argument(
@@ -158,7 +234,23 @@ def collect_streaming(lf: pl.LazyFrame) -> pl.DataFrame:
         return lf.collect(streaming=True)
 
 
-def sink_csv_streaming(lf: pl.LazyFrame, path: str, separator: str = ",") -> None:
+def scan_table(path: str, separator: str = ",") -> pl.LazyFrame:
+    if Path(path).suffix.lower() == ".parquet":
+        return pl.scan_parquet(path)
+    return pl.scan_csv(
+        path,
+        separator=separator,
+        infer_schema_length=0,
+        null_values=["", "-", "NULL", "null"],
+    )
+
+
+def sink_table(lf: pl.LazyFrame, path: str, separator: str = ",") -> None:
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    if Path(path).suffix.lower() == ".parquet":
+        lf.sink_parquet(path, compression="zstd")
+        return
+
     try:
         lf.sink_csv(path, separator=separator)
     except TypeError:
@@ -742,7 +834,7 @@ def seasonal_weekly_expr(fraction: Fraction) -> pl.Expr:
 def raw_daily_weight_expr(fraction: Fraction, seed: int, n_days: int) -> pl.Expr:
     salt = fraction_salt(fraction.label, seed)
     seasonal = seasonal_weekly_expr(fraction)
-    noise = lognormal_multiplier(seed, salt + 1_000, fraction.sigma)
+    noise = lognormal_multiplier(seed, salt + 1_000, fraction.sigma).clip(0.35, 3.0)
 
     if fraction.kind in {"rare", "semi_rare"}:
         anchor_day = anchor_day_expr(seed, salt + 2_000, n_days)
@@ -757,10 +849,12 @@ def raw_daily_weight_expr(fraction: Fraction, seed: int, n_days: int) -> pl.Expr
             rnd01(seed, salt + 3_000) < event_probability
         )
 
-        return pl.when(event).then(seasonal * noise).otherwise(pl.lit(1e-12))
+        return pl.when(event).then(seasonal * noise).otherwise(pl.lit(0.0))
 
     if fraction.kind == "continuous_tail":
-        return seasonal * lognormal_multiplier(seed, salt + 4_000, fraction.sigma)
+        return seasonal * lognormal_multiplier(seed, salt + 4_000, fraction.sigma).clip(
+            0.25, 4.0
+        )
 
     return seasonal * noise
 
@@ -784,24 +878,18 @@ def scan_annual_fraction(
     if id_col not in columns:
         raise SystemExit(f"Nel file annuo manca la colonna ID {id_col!r}.")
 
-    optional_meta = [
-        "odonimo",
-        "localita",
-        "civico",
-        "esponente",
-        "coord_x",
-        "coord_y",
-        "densita_locale",
-        "cluster_label",
-    ]
-
     select_exprs = [
         pl.col(id_col).cast(pl.Utf8).alias("id_civico"),
     ]
 
-    for c in optional_meta:
-        if c in columns:
-            select_exprs.append(pl.col(c).alias(c))
+    excluded = ANNUAL_VALUE_COLUMNS | {
+        id_col,
+        "id_civico",
+        "zona",
+        "zona_raccolta",
+    }
+    metadata_cols = [c for c in columns if c not in excluded]
+    select_exprs.extend(pl.col(c) for c in metadata_cols)
 
     if zona_col in columns:
         select_exprs.append(pl.col(zona_col).cast(pl.Utf8).alias("zona_raccolta"))
@@ -811,12 +899,7 @@ def scan_annual_fraction(
     select_exprs.append(parse_number_expr(annual_col).alias("_annual_t"))
 
     lf = (
-        pl.scan_csv(
-            path,
-            separator=separator,
-            infer_schema_length=0,
-            null_values=["", "-", "NULL", "null"],
-        )
+        scan_table(path, separator)
         .select(select_exprs)
         .with_row_index("_row_nr")
         .filter(pl.col("_annual_t") > 0)
@@ -826,13 +909,7 @@ def scan_annual_fraction(
 
 
 def get_annual_columns(path: str, separator: str) -> list[str]:
-    with open(path, "r", encoding="utf-8-sig", newline="") as f:
-        header = f.readline().strip("\r\n")
-
-    if not header:
-        raise SystemExit(f"File annuo vuoto o intestazione mancante: {path}")
-
-    return [col.strip() for col in header.split(separator)]
+    return scan_table(path, separator).collect_schema().names()
 
 
 def get_zones_from_annual(
@@ -853,12 +930,7 @@ def get_zones_from_annual(
         return [str(zona_default)]
 
     lf = (
-        pl.scan_csv(
-            path,
-            separator=separator,
-            infer_schema_length=0,
-            null_values=["", "-", "NULL", "null"],
-        )
+        scan_table(path, separator)
         .select(pl.col(real_zona_col).cast(pl.Utf8).alias("zona_raccolta"))
         .unique()
     )
@@ -868,6 +940,13 @@ def get_zones_from_annual(
 
 
 def merge_part_files(part_files: list[str], final_path: str) -> None:
+    if Path(final_path).suffix.lower() == ".parquet":
+        sink_table(
+            pl.concat([pl.scan_parquet(part) for part in part_files], how="vertical"),
+            final_path,
+        )
+        return
+
     with open(final_path, "wb") as out:
         header_written = False
 
@@ -938,47 +1017,25 @@ def process_fraction(
 
     meta_cols = [
         c
-        for c in [
-            "id_civico",
-            "odonimo",
-            "localita",
-            "civico",
-            "esponente",
-            "coord_x",
-            "coord_y",
-            "densita_locale",
-            "cluster_label",
-        ]
-        if c in production_lf.collect_schema().names()
+        for c in annual_lf.collect_schema().names()
+        if c not in {"_row_nr", "_annual_t", "zona_raccolta"}
     ]
-
-    group_cols = [
-        "_row_nr",
-        "_annual_t",
-        *meta_cols,
-        "zona_raccolta",
-        "frazione",
-        "conferimento_data",
-    ]
+    metadata_lf = annual_lf.select(["_row_nr", *meta_cols])
 
     conferimenti_lf = (
-        production_lf.group_by(group_cols)
+        production_lf.group_by(
+            ["_row_nr", "zona_raccolta", "frazione", "conferimento_data"]
+        )
         .agg(
             [
                 pl.sum("produzione_teorica_t").alias("conferimento_t"),
                 pl.len().alias("giorni_accumulati"),
             ]
         )
+        .filter(pl.col("conferimento_t") > 0)
         .rename({"conferimento_data": "data"})
-        .with_columns(
-            [
-                pl.lit(args.anno).alias("anno_produzione"),
-                pl.col("_annual_t").alias("historical_annual_t"),
-                (
-                    pl.col("_annual_t") / pl.len().over("_row_nr")
-                ).alias("historical_collection_mean_t"),
-            ]
-        )
+        .join(metadata_lf, on="_row_nr", how="left")
+        .with_columns(pl.lit(args.anno).alias("anno_produzione"))
     )
 
     if args.round_decimals >= 0:
@@ -995,13 +1052,22 @@ def process_fraction(
             "frazione",
             "conferimento_t",
             "giorni_accumulati",
-            "historical_annual_t",
-            "historical_collection_mean_t",
         ]
     )
 
-    part_path = str(part_dir / f"{fraction.label}.csv")
-    sink_csv_streaming(conferimenti_lf, part_path)
+    part_suffix = Path(args.out).suffix or ".csv"
+    part_path = str(part_dir / f"{fraction.label}{part_suffix}")
+    sink_table(conferimenti_lf, part_path)
+
+    observed_max = (
+        scan_table(part_path).select(pl.max("conferimento_t")).collect().item()
+    )
+    limit = MAX_COLLECTION_T[fraction.label]
+    if observed_max is not None and float(observed_max) > limit:
+        raise SystemExit(
+            f"Limite per conferimento superato per {fraction.label}: "
+            f"{float(observed_max):.6f} t > {limit:.6f} t."
+        )
 
     production_part_path = None
 
@@ -1024,8 +1090,11 @@ def process_fraction(
                 pl.col("produzione_teorica_t").round(args.round_decimals)
             )
 
-        production_part_path = str(production_part_dir / f"{fraction.label}.csv")
-        sink_csv_streaming(produzione_lf, production_part_path)
+        production_suffix = Path(args.out_produzione).suffix or ".csv"
+        production_part_path = str(
+            production_part_dir / f"{fraction.label}{production_suffix}"
+        )
+        sink_table(produzione_lf, production_part_path)
 
     return part_path, production_part_path
 
@@ -1034,6 +1103,12 @@ def main() -> None:
     args = parse_args()
 
     annual_columns = get_annual_columns(args.annuo, args.annuo_separator)
+    missing_static = sorted(REQUIRED_STATIC_COLUMNS - set(annual_columns))
+    if missing_static:
+        raise SystemExit(
+            "Nel dataset annuo mancano metadati civici/territoriali obbligatori: "
+            + ", ".join(missing_static)
+        )
 
     zones = get_zones_from_annual(
         path=args.annuo,

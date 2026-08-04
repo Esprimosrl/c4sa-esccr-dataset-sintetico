@@ -31,6 +31,39 @@ FRACTIONS = [
 ]
 
 
+ANNCSU_METADATA = {
+    "CODICE_COMUNE": "anncsu_codice_comune",
+    "CODICE_ISTAT": "anncsu_codice_istat",
+    "PROGRESSIVO_NAZIONALE": "anncsu_progressivo_nazionale",
+    "CODICE_COMUNALE": "anncsu_codice_comunale",
+    "DIZIONE_LINGUA1": "anncsu_dizione_lingua1",
+    "DIZIONE_LINGUA2": "anncsu_dizione_lingua2",
+    "CODICE_COMUNALE_ACCESSO": "anncsu_codice_comunale_accesso",
+    "SPECIFICITA": "anncsu_specificita",
+    "METRICO": "anncsu_metrico",
+    "PROGRESSIVO_SNC": "anncsu_progressivo_snc",
+    "QUOTA": "anncsu_quota",
+    "METODO": "anncsu_metodo",
+}
+
+# conservative civic bounds for the synthetic residential model;
+# replace them with calibrated limits when operator observations become available.
+MAX_ANNUAL_T = {
+    "altro_rd_t": 0.10,
+    "ingombranti_misti_t": 0.30,
+    "carta_cartone_t": 0.50,
+    "frazione_organica_t": 1.00,
+    "legno_t": 0.15,
+    "metallo_t": 0.05,
+    "plastica_t": 0.25,
+    "raee_t": 0.10,
+    "selettiva_t": 0.01,
+    "tessili_t": 0.12,
+    "vetro_t": 0.30,
+    "rifiuti_cd_t": 0.25,
+}
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Distribuisce i totali annui dei rifiuti sui civici, assumendo civici residenziali."
@@ -39,7 +72,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--totali", required=True, help="CSV totali rifiuti, separatore ',' di default"
     )
-    parser.add_argument("--out", required=True, help="CSV di output")
+    parser.add_argument("--out", required=True, help="CSV annuale di output")
     parser.add_argument(
         "--anno",
         type=int,
@@ -58,7 +91,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--round-decimals",
         type=int,
-        default=3,
+        default=-1,
         help="Decimali per le tonnellate in output. Usa -1 per non arrotondare.",
     )
     return parser.parse_args()
@@ -144,19 +177,17 @@ def read_totals(
 
     row = row_df.to_dicts()[0]
 
-    targets_t = {}
-    for f in FRACTIONS:
-        tons = parse_eu_number(row.get(f.input_col))
-        targets_t[f.output_col] = tons * 1000.0
+    targets_t = {f.output_col: parse_eu_number(row.get(f.input_col)) for f in FRACTIONS}
 
     return anno, targets_t
 
 
 def scan_civici_selected(path: str) -> pl.LazyFrame:
-    # Colonne mantenute:
-    # - PROGRESSIVO_ACCESSO come ID stabile del civico
-    # - ODONIMO, LOCALITA', CIVICO, ESPONENTE per descrivere l'indirizzo
-    # - COORD_X_COMUNE, COORD_Y_COMUNE per stimare densità locale
+    metadata_exprs = [
+        pl.col(source).cast(pl.Utf8).alias(target)
+        for source, target in ANNCSU_METADATA.items()
+    ]
+
     return (
         pl.scan_csv(
             path,
@@ -174,6 +205,7 @@ def scan_civici_selected(path: str) -> pl.LazyFrame:
                 pl.col("ESPONENTE").cast(pl.Utf8).alias("esponente"),
                 parse_number_expr("COORD_X_COMUNE").alias("coord_x"),
                 parse_number_expr("COORD_Y_COMUNE").alias("coord_y"),
+                *metadata_exprs,
             ]
         )
         .with_columns(
@@ -330,14 +362,13 @@ def rare_weight(
     salt: int,
     probability: pl.Expr,
     sigma: float,
-    epsilon: float = 1e-12,
+    min_weight: float = 0.25,
+    max_weight: float = 4.0,
 ) -> pl.Expr:
     event = rnd01(seed, salt + 20_000) < probability.clip(0.001, 0.95)
-    return (
-        pl.when(event)
-        .then(base * lognormal_multiplier(seed, salt, sigma))
-        .otherwise(pl.lit(epsilon))
-    )
+    raw = base * lognormal_multiplier(seed, salt, sigma)
+    bounded = min_weight + (max_weight - min_weight) * raw / (1.0 + raw)
+    return pl.when(event).then(bounded).otherwise(pl.lit(0.0))
 
 
 def add_raw_weights(
@@ -387,12 +418,12 @@ def add_raw_weights(
         salt = idx * 1000
 
         if f.kind == "continuous":
-            expr = base * lognormal_multiplier(seed, salt, 0.60)
+            expr = (base * lognormal_multiplier(seed, salt, 0.45)).clip(0.20, 4.0)
 
         elif f.kind == "continuous_tail":
             expr = (
                 base * (0.90 + 0.35 * isolated) * lognormal_multiplier(seed, salt, 0.90)
-            )
+            ).clip(0.15, 5.0)
 
         elif f.kind == "street":
             # La pulizia stradale non è davvero del singolo civico.
@@ -400,35 +431,35 @@ def add_raw_weights(
             expr = (0.20 + d * d) * lognormal_multiplier(seed, salt, 0.55)
 
         elif f.kind == "semi_rare":
-            probability = 0.06 + 0.07 * d + 0.04 * isolated
+            probability = 0.38 + 0.08 * d + 0.04 * isolated
             expr = rare_weight(
                 base=base * (0.90 + 0.50 * isolated),
                 seed=seed,
                 salt=salt,
                 probability=probability,
-                sigma=1.15,
+                sigma=0.45,
             )
 
         elif f.kind == "rare":
             if f.output_col == "rifiuti_cd_t":
-                probability = 0.025 + 0.045 * d + 0.040 * isolated
-                sigma = 1.45
+                probability = 0.18 + 0.05 * d + 0.04 * isolated
+                sigma = 0.50
                 rare_base = base * (0.80 + 0.60 * isolated)
             elif f.output_col == "ingombranti_misti_t":
-                probability = 0.040 + 0.070 * d
-                sigma = 1.20
+                probability = 0.72 + 0.08 * d
+                sigma = 0.45
                 rare_base = base
             elif f.output_col == "raee_t":
-                probability = 0.020 + 0.050 * d
-                sigma = 1.25
+                probability = 0.38 + 0.08 * d
+                sigma = 0.40
                 rare_base = base
             elif f.output_col == "tessili_t":
-                probability = 0.030 + 0.060 * d
-                sigma = 1.20
+                probability = 0.58 + 0.10 * d
+                sigma = 0.40
                 rare_base = base
             else:
-                probability = 0.030 + 0.050 * d
-                sigma = 1.10
+                probability = 0.20 + 0.06 * d
+                sigma = 0.40
                 rare_base = base
 
             expr = rare_weight(
@@ -528,6 +559,8 @@ def main() -> None:
 
     waste_cols = [f.output_col for f in FRACTIONS]
 
+    metadata_cols = list(ANNCSU_METADATA.values())
+
     lf_out = lf_norm.with_columns(
         [
             pl.lit(anno).alias("anno"),
@@ -544,10 +577,37 @@ def main() -> None:
             "coord_x",
             "coord_y",
             "densita_locale",
+            *metadata_cols,
             *waste_cols,
             "totale_t",
         ]
     )
+
+    stats_t = (
+        lf_out.select(
+            [pl.sum(c).alias(f"sum_{c}") for c in waste_cols]
+            + [pl.max(c).alias(f"max_{c}") for c in waste_cols]
+        )
+        .collect(engine="streaming")
+        .row(0, named=True)
+    )
+    mismatches = [
+        f"{col}: {stats_t[f'sum_{col}']} != {target}"
+        for col, target in targets_t.items()
+        if not math.isclose(
+            float(stats_t[f"sum_{col}"]), target, rel_tol=1e-10, abs_tol=1e-8
+        )
+    ]
+    if mismatches:
+        raise SystemExit("Riconciliazione ISPRA fallita: " + "; ".join(mismatches))
+
+    excessive = [
+        f"{col}: {stats_t[f'max_{col}']:.6f} t > {limit:.6f} t"
+        for col, limit in MAX_ANNUAL_T.items()
+        if float(stats_t[f"max_{col}"]) > limit
+    ]
+    if excessive:
+        raise SystemExit("Limite annuale per civico superato: " + "; ".join(excessive))
 
     if args.round_decimals >= 0:
         t_cols = [*waste_cols, "totale_t"]
